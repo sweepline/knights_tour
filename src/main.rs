@@ -1,4 +1,6 @@
-const BOARD_WIDTH: u8 = 5;
+use rayon::prelude::*;
+
+const BOARD_WIDTH: u8 = 6;
 const BOARD_SIZE: usize = (BOARD_WIDTH * BOARD_WIDTH) as usize;
 
 // We can jump to 8 locations with a knight.
@@ -14,27 +16,35 @@ type Jumps = [u8; 8];
 
 const fn find_jump(pos: u8, jump: u8) -> u8 {
     if pos < BOARD_WIDTH * 2 && jump <= 1 {
+        // Top two rows
         return u8::MAX;
     }
     if pos < BOARD_WIDTH && jump <= 3 {
+        // Top row
         return u8::MAX;
     }
     if pos >= (BOARD_SIZE as u8 - 2 * BOARD_WIDTH) && jump >= 6 {
+        // Bottom two rows
         return u8::MAX;
     }
     if pos >= (BOARD_SIZE as u8 - BOARD_WIDTH) && jump >= 4 {
+        // Bottom row
         return u8::MAX;
     }
-    if pos % BOARD_WIDTH > (BOARD_WIDTH - 3) && (jump == 3 || jump == 5) {
+    if pos % BOARD_WIDTH >= (BOARD_WIDTH - 2) && (jump == 3 || jump == 5) {
+        // Rightmost two rows
         return u8::MAX;
     }
-    if pos % BOARD_WIDTH > (BOARD_WIDTH - 2) && (jump == 1 || jump == 7) {
+    if pos % BOARD_WIDTH >= (BOARD_WIDTH - 1) && (jump == 1 || jump == 7) {
+        // Rightmost row
         return u8::MAX;
     }
-    if pos % BOARD_WIDTH < 2 && (jump == 2 || jump == 4) {
+    if pos % BOARD_WIDTH <= 1 && (jump == 2 || jump == 4) {
+        // Leftmost two rows
         return u8::MAX;
     }
-    if pos % BOARD_WIDTH < 1 && (jump == 0 || jump == 6) {
+    if pos % BOARD_WIDTH <= 0 && (jump == 0 || jump == 6) {
+        // Leftmost row
         return u8::MAX;
     }
 
@@ -47,7 +57,7 @@ const fn find_jump(pos: u8, jump: u8) -> u8 {
         5 => pos + BOARD_WIDTH + 2,
         6 => pos + BOARD_WIDTH * 2 - 1,
         7 => pos + BOARD_WIDTH * 2 + 1,
-        _ => u8::MAX - 1,
+        _ => panic!("Jump to invalid location"),
     }
 }
 
@@ -72,21 +82,38 @@ type Visited = [bool; BOARD_SIZE];
 type Stack = [(u8, u8); BOARD_SIZE];
 
 fn main() {
-    println!("{:?}", POSSIBLE_JUMPS);
-    let mut sum = 0; // amount of different paths
+    let mut sum: u128 = 0;
+    // let mut handles: Vec<JoinHandle<u128>> = vec![];
+    let positions: Vec<u8> = (0..BOARD_SIZE as u8).collect();
+    let sum: u128 = positions
+        .par_iter()
+        .map(|start| run_from_start_pos(*start))
+        .sum();
+    // for s in 0..BOARD_SIZE {
+    //     let start: u8 = s.try_into().unwrap();
+    //     let handle = thread::spawn(move || return run_from_start_pos(start));
+    //     handles.push(handle);
+    // }
+    // for handle in handles {
+    //     let part_sum = handle.join().unwrap();
+    //     sum += part_sum;
+    // }
+    println!("SUM: {}", sum);
+}
+
+fn run_from_start_pos(start: u8) -> u128 {
+    let mut sum: u128 = 0; // amount of different paths
     let mut visited: Visited = [false; BOARD_SIZE];
-    visited[0] = true;
-    let mut stack: Stack = [(0, 0); BOARD_SIZE];
+    visited[start as usize] = true;
+    let mut stack: Stack = [(start, 0); BOARD_SIZE];
     let mut stack_ptr = 0;
 
-    loop {
-        let (pos, jump_index) = stack[stack_ptr];
-
-        println!("ROUND");
+    fn print_board(pos: &u8, visited: &Visited) {
+        println!("BOARD");
         for i in 0..BOARD_WIDTH {
             for k in 0..BOARD_WIDTH {
                 let index = i * BOARD_WIDTH + k;
-                if index == pos {
+                if index == *pos {
                     print!("C ");
                     continue;
                 }
@@ -101,14 +128,32 @@ fn main() {
             }
             println!("");
         }
-        println!("current = ({:?}, {:?})", pos, jump_index);
-        println!("stack_ptr = {}", stack_ptr);
+    }
+
+    loop {
+        let (pos, jump_index) = stack[stack_ptr];
+
+        // println!("ROUND");
+        // println!("current = ({:?}, {:?})", pos, jump_index);
+        // println!("stack_ptr = {}", stack_ptr);
 
         if jump_index > 7 {
             let amount: u64 = visited.iter().map(|v| if *v { 1 } else { 0 }).sum();
-            println!("AMOUNT: {}, MAX: {}", amount, BOARD_SIZE);
+            // println!("AMOUNT: {}, MAX: {}", amount, BOARD_SIZE);
             // There are no places to jump left. Check if we are done and unwind.
-            if visited.iter().all(|v| *v) {
+            let can_jump_start = POSSIBLE_JUMPS[pos as usize].iter().any(|j| *j == start);
+            let all_visited = visited.iter().all(|v| *v);
+
+            // if can_jump_start {
+            //     println!("CAN_JUMP_START");
+            //     print_board(&pos, &visited);
+            // }
+            // if all_visited {
+            //     println!("ALL_VISITED");
+            //     print_board(&pos, &visited);
+            // }
+
+            if all_visited {
                 sum += 1;
             }
 
@@ -119,7 +164,7 @@ fn main() {
 
             visited[pos as usize] = false;
             stack_ptr -= 1;
-            println!("UNWIND TO: {:?}", stack[stack_ptr].0);
+            // println!("UNWIND TO: {:?}", stack[stack_ptr].0);
             continue;
         }
 
@@ -127,10 +172,10 @@ fn main() {
         stack[stack_ptr].1 = jump_index + 1;
 
         let jump_pos = POSSIBLE_JUMPS[pos as usize][jump_index as usize];
-        println!("possible = {:?}", jump_pos);
+        // println!("possible = {:?}", jump_pos);
 
         if jump_pos != u8::MAX && visited[jump_pos as usize] == false {
-            println!("JUMP TO: {:?}", jump_pos);
+            // println!("JUMP TO: {:?}", jump_pos);
             // The jump location is valid, so go there.
             visited[jump_pos as usize] = true;
             stack_ptr += 1;
@@ -138,5 +183,6 @@ fn main() {
         }
     }
 
-    println!("SUM: {:?}", sum);
+    println!("For start {} found {} paths", start, sum);
+    sum
 }
