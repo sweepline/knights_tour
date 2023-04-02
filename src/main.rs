@@ -1,6 +1,6 @@
 use rayon::prelude::*;
 
-const BOARD_WIDTH: u8 = 5;
+const BOARD_WIDTH: u8 = 6;
 const BOARD_SIZE: usize = (BOARD_WIDTH * BOARD_WIDTH) as usize;
 
 // We can jump to 8 locations with a knight.
@@ -84,71 +84,124 @@ type Stack = [(u8, u8); BOARD_SIZE];
 fn main() {
     // Now instead parallelize on only start 0, to find closed tours faster.
     // Means we BFS until we have threads amount of prefix paths. Then do DFS until done.
-    let positions: Vec<u8> = (0..BOARD_SIZE as u8).collect();
-    let sums: Vec<(u128, u128)> = positions
-        .par_iter()
-        .map(|start| run_from_start_pos(*start))
-        .collect();
-    let (open, closed): (Vec<u128>, Vec<u128>) = sums.into_iter().unzip();
-    let open: u128 = open.into_iter().sum();
-    let closed: u128 = closed.into_iter().sum();
-    // for s in 0..BOARD_SIZE {
-    //     let start: u8 = s.try_into().unwrap();
-    //     let handle = thread::spawn(move || return run_from_start_pos(start));
-    //     handles.push(handle);
-    // }
-    // for handle in handles {
-    //     let part_sum = handle.join().unwrap();
-    //     sum += part_sum;
-    // }
-    println!("Open paths: {}", open);
-    println!("Directed closed paths: {}", closed);
-    println!("Undirected closed paths: {}", closed / 2);
+    let mut open_count: u128 = 0;
+    let closed_count: u128;
+    const SEARCH_OPEN: bool = false;
+    if SEARCH_OPEN {
+        let positions: Vec<u8> = (0..1 as u8).collect();
+        let sums: Vec<(u128, u128)> = positions
+            .par_iter()
+            .map(|start| {
+                let mut visited: Visited = [false; BOARD_SIZE];
+                visited[*start as usize] = true;
+                let stack: Stack = [(*start, 0); BOARD_SIZE];
+                let stack_ptr = 0;
+                let mut sd = SearchData {
+                    visited,
+                    stack,
+                    stack_ptr,
+                    start: *start,
+                    open_count: 0,
+                    closed_count: 0,
+                };
+                dfs(&mut sd);
+                (sd.open_count, sd.closed_count)
+            })
+            .collect();
+        let (open, closed): (Vec<u128>, Vec<u128>) = sums.into_iter().unzip();
+        open_count = open.into_iter().sum();
+        closed_count = closed.into_iter().sum();
+    } else {
+        closed_count = bfs(0, 4);
+    }
+    println!("Open paths: {}", open_count);
+    println!("Directed closed paths: {}", closed_count);
+    println!("Undirected closed paths: {}", closed_count / 2);
 }
 
-fn run_from_start_pos(start: u8) -> (u128, u128) {
-    let mut sum_open: u128 = 0; // amount of different paths
-    let mut sum_closed: u128 = 0; // amount of different paths
+#[derive(Clone, Copy, Debug)]
+struct SearchData {
+    visited: Visited,
+    stack: Stack,
+    stack_ptr: usize,
+    start: u8,
+    open_count: u128,
+    closed_count: u128,
+}
+
+fn bfs(start: u8, depth_until_dfs: usize) -> u128 {
     let mut visited: Visited = [false; BOARD_SIZE];
     visited[start as usize] = true;
-    let mut stack: Stack = [(start, 0); BOARD_SIZE];
-    let mut stack_ptr = 0;
+    let stack: Stack = [(start, 0); BOARD_SIZE];
+    let stack_ptr = 0;
+    let start_sd = SearchData {
+        visited,
+        stack,
+        stack_ptr,
+        start,
+        open_count: 0,
+        closed_count: 0,
+    };
 
-    fn print_board(pos: &u8, visited: &Visited) {
-        println!("BOARD");
-        for i in 0..BOARD_WIDTH {
-            for k in 0..BOARD_WIDTH {
-                let index = i * BOARD_WIDTH + k;
-                if index == *pos {
-                    print!("C ");
-                    continue;
+    let mut current: Vec<SearchData> = vec![start_sd];
+    let mut depth = 0;
+
+    while depth < depth_until_dfs {
+        let mut new_current: Vec<SearchData> = vec![];
+        // Visit all currents
+        for sd in &mut current {
+            let (pos, _) = sd.stack[sd.stack_ptr];
+
+            for jump_pos in POSSIBLE_JUMPS[pos as usize] {
+                if jump_pos != u8::MAX && sd.visited[jump_pos as usize] == false {
+                    let mut sd = sd.clone();
+                    sd.visited[jump_pos as usize] = true;
+                    sd.stack_ptr += 1;
+                    sd.stack[sd.stack_ptr] = (jump_pos, 0);
+                    new_current.push(sd);
                 }
-                fn c(v: bool) -> &'static str {
-                    if v {
-                        "T"
-                    } else {
-                        "F"
-                    }
-                }
-                print!("{} ", c(visited[index as usize]));
             }
-            println!("");
         }
+        depth += 1;
+        current = new_current;
     }
 
+    println!("Iterating over {} sub-boards concurrently", current.len());
+
+    let closed_count: u128 = current
+        .par_iter_mut()
+        .map(|sd| {
+            dfs(sd);
+            sd.closed_count
+        })
+        .sum();
+
+    closed_count
+}
+
+fn dfs(sd: &mut SearchData) {
+    let start = sd.start;
+
+    // If we reach this and want to unwind, break and return.
+    let starting_stack_ptr = sd.stack_ptr;
+
+    // let mut visited: Visited = [false; BOARD_SIZE];
+    // visited[start as usize] = true;
+    // let mut stack: Stack = [(start, 0); BOARD_SIZE];
+
     loop {
-        let (pos, jump_index) = stack[stack_ptr];
+        let (pos, jump_index) = sd.stack[sd.stack_ptr];
 
         // println!("ROUND");
         // println!("current = ({:?}, {:?})", pos, jump_index);
         // println!("stack_ptr = {}", stack_ptr);
 
         if jump_index > 7 {
-            let amount: u64 = visited.iter().map(|v| if *v { 1 } else { 0 }).sum();
+            // let amount: u64 = sd.visited.iter().map(|v| if *v { 1 } else { 0 }).sum();
             // println!("AMOUNT: {}, MAX: {}", amount, BOARD_SIZE);
             // There are no places to jump left. Check if we are done and unwind.
-            let can_jump_start = POSSIBLE_JUMPS[pos as usize].iter().any(|j| *j == start);
-            let all_visited = visited.iter().all(|v| *v);
+            let can_jump_start = POSSIBLE_JUMPS[pos as usize].iter().any(|j| *j == sd.start);
+            let all_visited = sd.visited.iter().all(|v| *v);
 
             // if can_jump_start {
             //     println!("CAN_JUMP_START");
@@ -160,41 +213,62 @@ fn run_from_start_pos(start: u8) -> (u128, u128) {
             // }
 
             if all_visited {
-                sum_open += 1;
+                sd.open_count += 1;
             }
             if all_visited && can_jump_start {
-                sum_closed += 1;
+                sd.closed_count += 1;
             }
 
             // Unwind.
-            if stack_ptr == 0 {
+            if sd.stack_ptr == starting_stack_ptr {
                 break;
             }
 
-            visited[pos as usize] = false;
-            stack_ptr -= 1;
+            sd.visited[pos as usize] = false;
+            sd.stack_ptr -= 1;
             // println!("UNWIND TO: {:?}", stack[stack_ptr].0);
             continue;
         }
 
         // increase current.1 (jump index);
-        stack[stack_ptr].1 = jump_index + 1;
+        sd.stack[sd.stack_ptr].1 = jump_index + 1;
 
         let jump_pos = POSSIBLE_JUMPS[pos as usize][jump_index as usize];
         // println!("possible = {:?}", jump_pos);
 
-        if jump_pos != u8::MAX && visited[jump_pos as usize] == false {
+        if jump_pos != u8::MAX && sd.visited[jump_pos as usize] == false {
             // println!("JUMP TO: {:?}", jump_pos);
             // The jump location is valid, so go there.
-            visited[jump_pos as usize] = true;
-            stack_ptr += 1;
-            stack[stack_ptr] = (jump_pos, 0);
+            sd.visited[jump_pos as usize] = true;
+            sd.stack_ptr += 1;
+            sd.stack[sd.stack_ptr] = (jump_pos, 0);
         }
     }
 
     println!(
         "For start {}\t found {}\t open paths and {}\t closed paths.",
-        start, sum_open, sum_closed
+        start, sd.open_count, sd.closed_count
     );
-    (sum_open, sum_closed)
+}
+
+fn print_board(pos: &u8, visited: &Visited) {
+    println!("BOARD");
+    for i in 0..BOARD_WIDTH {
+        for k in 0..BOARD_WIDTH {
+            let index = i * BOARD_WIDTH + k;
+            if index == *pos {
+                print!("C ");
+                continue;
+            }
+            fn c(v: bool) -> &'static str {
+                if v {
+                    "T"
+                } else {
+                    "F"
+                }
+            }
+            print!("{} ", c(visited[index as usize]));
+        }
+        println!("");
+    }
 }
