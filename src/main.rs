@@ -1,6 +1,6 @@
 use rayon::prelude::*;
 
-const BOARD_WIDTH: u8 = 6;
+const BOARD_WIDTH: u8 = 5;
 const BOARD_SIZE: usize = (BOARD_WIDTH * BOARD_WIDTH) as usize;
 
 // We can jump to 8 locations with a knight.
@@ -82,13 +82,16 @@ type Visited = [bool; BOARD_SIZE];
 type Stack = [(u8, u8); BOARD_SIZE];
 
 fn main() {
-    let mut sum: u128 = 0;
-    // let mut handles: Vec<JoinHandle<u128>> = vec![];
+    // Now instead parallelize on only start 0, to find closed tours faster.
+    // Means we BFS until we have threads amount of prefix paths. Then do DFS until done.
     let positions: Vec<u8> = (0..BOARD_SIZE as u8).collect();
-    let sum: u128 = positions
+    let sums: Vec<(u128, u128)> = positions
         .par_iter()
         .map(|start| run_from_start_pos(*start))
-        .sum();
+        .collect();
+    let (open, closed): (Vec<u128>, Vec<u128>) = sums.into_iter().unzip();
+    let open: u128 = open.into_iter().sum();
+    let closed: u128 = closed.into_iter().sum();
     // for s in 0..BOARD_SIZE {
     //     let start: u8 = s.try_into().unwrap();
     //     let handle = thread::spawn(move || return run_from_start_pos(start));
@@ -98,11 +101,14 @@ fn main() {
     //     let part_sum = handle.join().unwrap();
     //     sum += part_sum;
     // }
-    println!("SUM: {}", sum);
+    println!("Open paths: {}", open);
+    println!("Directed closed paths: {}", closed);
+    println!("Undirected closed paths: {}", closed / 2);
 }
 
-fn run_from_start_pos(start: u8) -> u128 {
-    let mut sum: u128 = 0; // amount of different paths
+fn run_from_start_pos(start: u8) -> (u128, u128) {
+    let mut sum_open: u128 = 0; // amount of different paths
+    let mut sum_closed: u128 = 0; // amount of different paths
     let mut visited: Visited = [false; BOARD_SIZE];
     visited[start as usize] = true;
     let mut stack: Stack = [(start, 0); BOARD_SIZE];
@@ -154,7 +160,10 @@ fn run_from_start_pos(start: u8) -> u128 {
             // }
 
             if all_visited {
-                sum += 1;
+                sum_open += 1;
+            }
+            if all_visited && can_jump_start {
+                sum_closed += 1;
             }
 
             // Unwind.
@@ -183,6 +192,9 @@ fn run_from_start_pos(start: u8) -> u128 {
         }
     }
 
-    println!("For start {} found {} paths", start, sum);
-    sum
+    println!(
+        "For start {}\t found {}\t open paths and {}\t closed paths.",
+        start, sum_open, sum_closed
+    );
+    (sum_open, sum_closed)
 }
