@@ -1,5 +1,6 @@
 use rayon::prelude::*;
 
+const SEARCH_OPEN: bool = false;
 const BOARD_WIDTH: u8 = 6;
 const BOARD_SIZE: usize = (BOARD_WIDTH * BOARD_WIDTH) as usize;
 
@@ -86,7 +87,6 @@ fn main() {
     // Means we BFS until we have threads amount of prefix paths. Then do DFS until done.
     let mut open_count: u128 = 0;
     let closed_count: u128;
-    const SEARCH_OPEN: bool = false;
     if SEARCH_OPEN {
         let positions: Vec<u8> = (0..1 as u8).collect();
         let sums: Vec<(u128, u128)> = positions
@@ -180,8 +180,7 @@ fn bfs(start: u8, depth_until_dfs: usize) -> u128 {
 }
 
 fn dfs(sd: &mut SearchData) {
-    let start = sd.start;
-
+    let mut searched: u64 = 0;
     // If we reach this and want to unwind, break and return.
     let starting_stack_ptr = sd.stack_ptr;
 
@@ -200,22 +199,14 @@ fn dfs(sd: &mut SearchData) {
             // let amount: u64 = sd.visited.iter().map(|v| if *v { 1 } else { 0 }).sum();
             // println!("AMOUNT: {}, MAX: {}", amount, BOARD_SIZE);
             // There are no places to jump left. Check if we are done and unwind.
-            let can_jump_start = POSSIBLE_JUMPS[pos as usize].iter().any(|j| *j == sd.start);
             let all_visited = sd.visited.iter().all(|v| *v);
-
-            // if can_jump_start {
-            //     println!("CAN_JUMP_START");
-            //     print_board(&pos, &visited);
-            // }
-            // if all_visited {
-            //     println!("ALL_VISITED");
-            //     print_board(&pos, &visited);
-            // }
+            let can_jump_start = POSSIBLE_JUMPS[pos as usize].iter().any(|j| *j == sd.start);
 
             if all_visited {
                 sd.open_count += 1;
             }
-            if all_visited && can_jump_start {
+
+            if can_jump_start && all_visited {
                 sd.closed_count += 1;
             }
 
@@ -239,6 +230,7 @@ fn dfs(sd: &mut SearchData) {
         if jump_pos != u8::MAX && sd.visited[jump_pos as usize] == false {
             // println!("JUMP TO: {:?}", jump_pos);
             // The jump location is valid, so go there.
+            searched += 1;
             sd.visited[jump_pos as usize] = true;
             sd.stack_ptr += 1;
             sd.stack[sd.stack_ptr] = (jump_pos, 0);
@@ -251,10 +243,21 @@ fn dfs(sd: &mut SearchData) {
         .take(sd.stack_ptr)
         .map(|s| s.0.to_string())
         .collect();
-    println!(
-        "For start {}\t\t\t found {}\t open paths and {}\t closed paths.",
-        start.join("-"), sd.open_count, sd.closed_count
-    );
+    if SEARCH_OPEN {
+        println!(
+            "For start {}\t found {}\t open paths and {}\t closed paths.",
+            start.join("-"),
+            sd.open_count,
+            sd.closed_count
+        );
+    } else {
+        println!(
+            "For start {}\t\t\t found {}\t closed paths searching {}\t locations.",
+            start.join("-"),
+            sd.closed_count,
+            searched,
+        );
+    }
 }
 
 fn print_board(pos: &u8, visited: &Visited) {
