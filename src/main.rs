@@ -245,9 +245,15 @@ fn dfs(sd: &mut SearchData) {
         }
     }
 
+    let start: Vec<String> = sd
+        .stack
+        .iter()
+        .take(sd.stack_ptr)
+        .map(|s| s.0.to_string())
+        .collect();
     println!(
-        "For start {}\t found {}\t open paths and {}\t closed paths.",
-        start, sd.open_count, sd.closed_count
+        "For start {}\t\t\t found {}\t open paths and {}\t closed paths.",
+        start.join("-"), sd.open_count, sd.closed_count
     );
 }
 
